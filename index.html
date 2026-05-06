@@ -228,6 +228,23 @@ body {
     color: #fbbf24;
 }
 
+.botao-ia {
+    margin-top: 8px;
+    width: 100%;
+    border: none;
+    border-radius: 14px;
+    padding: 12px 16px;
+    background: #38bdf8;
+    color: #02131f;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.botao-ia:hover {
+    background: #0ea5e9;
+}
+
 @media (max-width: 1100px) {
     .container {
         flex-direction: column;
@@ -289,7 +306,15 @@ body {
                 <h4>Serviços</h4>
                 <div id="servicos">Use uma praia para ver serviços locais.</div>
             </div>
-
+            <div class="info-secao">
+                 <h4>Resumo da IA</h4>
+                 <div id="resumoIA">
+                    <div class="info-card">Selecione uma praia para ver o resumo inteligente.</div>
+                 </div>
+                 <button id="btnGerarResumoIA" type="button" class="botao-ia">
+                    Gerar resumo por IA
+                 </button>
+            </div>
             <div class="info-secao comentarios-box">
                 <h4>Comentários</h4>
                 <div id="comentarios">Selecione uma praia para carregar comentários.</div>
