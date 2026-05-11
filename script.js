@@ -4,7 +4,10 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 let map, markersLayer;
 let praias = [];
 let praiaSelecionada = null;
+let usuarioAtual = null;
 let usuarioId = null;
+let usuarioNome = null;
+let modoAutenticacao = 'login';
 
 let listaElement, filtroInput, painelDetalhes, praiaNome, praiaTipo, praiaDados, praiaPerigos;
 let analisePraia, eventosDiv, servicosDiv, comentariosDiv, comentarioInput, btnEnviar;
@@ -29,10 +32,47 @@ async function iniciarApp() {
     btnEnviar = document.getElementById('btnEnviar');
     
     configurarMapa();
-    usuarioId = await inicializarUsuario();
+    verificarUsuarioLogado();
     btnEnviar.addEventListener('click', enviarComentario);
     filtroInput.addEventListener('input', filtrarPraias);
     await carregarPraias();
+}
+
+function verificarUsuarioLogado() {
+    const usuarioSalvo = localStorage.getItem('shakaUsuario');
+    if (usuarioSalvo) {
+        const dados = JSON.parse(usuarioSalvo);
+        usuarioAtual = dados;
+        usuarioId = dados.id;
+        usuarioNome = dados.nome;
+        atualizarNavbar();
+    } else {
+        usuarioId = crypto.randomUUID();
+        localStorage.setItem('shakaUserId', usuarioId);
+    }
+}
+
+function atualizarNavbar() {
+    const btnLogin = document.getElementById('btnLogin');
+    const navInfo = document.getElementById('navInfo');
+    
+    if (usuarioAtual) {
+        const inicial = usuarioNome.charAt(0).toUpperCase();
+        btnLogin.innerHTML = `
+            <div class="usuario-info">
+                <span>${usuarioNome}</span>
+                <div class="usuario-avatar">${inicial}</div>
+            </div>
+        `;
+        btnLogin.onclick = null;
+        btnLogin.style.background = 'transparent';
+        btnLogin.style.color = '#cbd5e1';
+        const menuBtn = btnLogin.querySelector('.usuario-avatar');
+        if (menuBtn) {
+            menuBtn.style.cursor = 'pointer';
+            menuBtn.onclick = () => logout();
+        }
+    }
 }
 
 function configurarMapa() {
@@ -43,72 +83,35 @@ function configurarMapa() {
     }).addTo(map);
 }
 
-async function fazerRequisicaoSupabase(tabela, filtros = '') {
-    const url = `${SUPABASE_URL}/rest/v1/${tabela}?${filtros}`;
+async function fazerRequisicaoSupabase(tabela, filtros = '', metodo = 'GET', corpo = null) {
+    let url = `${SUPABASE_URL}/rest/v1/${tabela}`;
+    if (filtros) url += `?${filtros}`;
+    
     const headers = {
         'apikey': SUPABASE_ANON_KEY,
         'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
         'Content-Type': 'application/json'
     };
     
+    const opcoes = { method: metodo, headers };
+    if (corpo) opcoes.body = JSON.stringify(corpo);
+    
     try {
-        const response = await fetch(url, { headers });
+        const response = await fetch(url, opcoes);
         if (!response.ok) {
-            console.error(`Erro na requisicao: ${response.status}`);
+            console.error(`Erro ${response.status} em ${tabela}`);
             return null;
         }
-        return await response.json();
+        return metodo === 'POST' ? response.ok : await response.json();
     } catch (erro) {
-        console.error(`Erro ao buscar ${tabela}:`, erro);
+        console.error(`Erro ao acessar ${tabela}:`, erro);
         return null;
     }
 }
 
-async function inserirNoSupabase(tabela, dados) {
-    const url = `${SUPABASE_URL}/rest/v1/${tabela}`;
-    const headers = {
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-        'Content-Type': 'application/json',
-        'Prefer': 'return=minimal'
-    };
-    
-    try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(dados)
-        });
-        return response.ok;
-    } catch (erro) {
-        console.error(`Erro ao inserir em ${tabela}:`, erro);
-        return false;
-    }
-}
-
-async function inicializarUsuario() {
-    let id = localStorage.getItem('shakaUserId');
-    if (!id) {
-        id = crypto.randomUUID();
-        localStorage.setItem('shakaUserId', id);
-    }
-
-    await inserirNoSupabase('Usuario', {
-        id,
-        nome: 'Surfista Anonimo',
-        email: ''
-    });
-
-    return id;
-}
-
 async function carregarPraias() {
     const filtros = 'order=nivel_popularidade.desc';
-    let data = await fazerRequisicaoSupabase('Praia', filtros);
-    
-    if (!data) {
-        data = await fazerRequisicaoSupabase('praia', filtros);
-    }
+    let data = await fazerRequisicaoSupabase('praia', filtros);
     
     if (!data) {
         listaElement.innerHTML = '<p>Nao foi possivel carregar as praias.</p>';
@@ -186,6 +189,8 @@ async function selecionarPraia(praia) {
         carregarServicos(praia.id),
         carregarComentarios(praia.id)
     ]);
+    
+    fecharFormEvento();
 }
 
 function renderizarEstrelas(valor) {
@@ -198,7 +203,7 @@ function renderizarEstrelas(valor) {
 
 async function carregarAnalisePraia(idPraia) {
     const filtros = `id_praia=eq.${idPraia}`;
-    const data = await fazerRequisicaoSupabase('AnalisePraia', filtros);
+    const data = await fazerRequisicaoSupabase('analisePraia', filtros);
 
     if (!data || data.length === 0) {
         analisePraia.innerHTML = '<div class="info-card">Nenhuma analise disponivel.</div>';
@@ -215,7 +220,7 @@ async function carregarAnalisePraia(idPraia) {
 
 async function carregarEventos(idPraia) {
     const filtros = `id_praia=eq.${idPraia}&order=data.asc`;
-    const data = await fazerRequisicaoSupabase('Evento', filtros);
+    const data = await fazerRequisicaoSupabase('evento', filtros);
 
     if (!data || data.length === 0) {
         eventosDiv.innerHTML = '<div class="info-card">Nenhum evento cadastrado para esta praia.</div>';
@@ -233,7 +238,7 @@ async function carregarEventos(idPraia) {
 
 async function carregarServicos(idPraia) {
     const filtros = `id_praia=eq.${idPraia}&order=tipo.asc`;
-    const data = await fazerRequisicaoSupabase('Servico', filtros);
+    const data = await fazerRequisicaoSupabase('servico', filtros);
 
     if (!data || data.length === 0) {
         servicosDiv.innerHTML = '<div class="info-card">Nenhum servico cadastrado para esta praia.</div>';
@@ -251,7 +256,7 @@ async function carregarServicos(idPraia) {
 
 async function carregarComentarios(idPraia) {
     const filtros = `id_praia=eq.${idPraia}&order=data.desc`;
-    const data = await fazerRequisicaoSupabase('Comentario', filtros);
+    const data = await fazerRequisicaoSupabase('comentario', filtros);
 
     if (!data || data.length === 0) {
         comentariosDiv.innerHTML = '<div class="info-card">Seja o primeiro a deixar um comentario.</div>';
@@ -279,7 +284,7 @@ async function enviarComentario() {
         return;
     }
 
-    const sucesso = await inserirNoSupabase('Comentario', {
+    const sucesso = await fazerRequisicaoSupabase('comentario', '', 'POST', {
         texto,
         tipo: 'avaliacao',
         id_praia: praiaSelecionada.id,
@@ -294,4 +299,172 @@ async function enviarComentario() {
 
     comentarioInput.value = '';
     await carregarComentarios(praiaSelecionada.id);
+}
+
+function abrirModalLogin() {
+    document.getElementById('modalAutenticacao').classList.add('active');
+    modoAutenticacao = 'login';
+    document.getElementById('modalTitulo').textContent = 'Login';
+    document.getElementById('grupoEmail').style.display = 'none';
+    document.getElementById('btnSubmit').textContent = 'Login';
+    document.getElementById('btnAlternarModo').textContent = 'Nao tem conta? Cadastre-se';
+}
+
+function fecharModal() {
+    document.getElementById('modalAutenticacao').classList.remove('active');
+    document.getElementById('formAutenticacao').reset();
+}
+
+function alternarModo() {
+    if (modoAutenticacao === 'login') {
+        modoAutenticacao = 'cadastro';
+        document.getElementById('modalTitulo').textContent = 'Cadastro';
+        document.getElementById('grupoEmail').style.display = 'block';
+        document.getElementById('btnSubmit').textContent = 'Cadastrar';
+        document.getElementById('btnAlternarModo').textContent = 'Ja tem conta? Login';
+    } else {
+        modoAutenticacao = 'login';
+        document.getElementById('modalTitulo').textContent = 'Login';
+        document.getElementById('grupoEmail').style.display = 'none';
+        document.getElementById('btnSubmit').textContent = 'Login';
+        document.getElementById('btnAlternarModo').textContent = 'Nao tem conta? Cadastre-se';
+    }
+}
+
+async function autenticar(event) {
+    event.preventDefault();
+    
+    const nome = document.getElementById('inputNome').value.trim();
+    const email = document.getElementById('inputEmail').value.trim();
+    const senha = document.getElementById('inputSenha').value.trim();
+    
+    if (!nome || !senha) {
+        alert('Preencha todos os campos!');
+        return;
+    }
+    
+    if (modoAutenticacao === 'cadastro') {
+        if (!email) {
+            alert('Email eh obrigatorio para cadastro!');
+            return;
+        }
+        
+        const novoUser = {
+            id: crypto.randomUUID(),
+            nome,
+            email,
+            senha
+        };
+        
+        let sucesso = await fazerRequisicaoSupabase('Usuario', '', 'POST', novoUser);
+        if (!sucesso) {
+            sucesso = await fazerRequisicaoSupabase('usuario', '', 'POST', novoUser);
+        }
+        
+        if (sucesso) {
+            usuarioAtual = novoUser;
+            usuarioId = novoUser.id;
+            usuarioNome = nome;
+            localStorage.setItem('shakaUsuario', JSON.stringify(novoUser));
+            atualizarNavbar();
+            fecharModal();
+            alert('Cadastro realizado com sucesso!');
+        } else {
+            alert('Erro ao cadastrar. Tente novamente!');
+        }
+    } else {
+        let usuarios = await fazerRequisicaoSupabase('Usuario', `nome=eq.${encodeURIComponent(nome)}`);
+        if (!usuarios) {
+            usuarios = await fazerRequisicaoSupabase('usuario', `nome=eq.${encodeURIComponent(nome)}`);
+        }
+        
+        if (usuarios && usuarios.length > 0) {
+            const user = usuarios[0];
+            if (user.senha === senha) {
+                usuarioAtual = user;
+                usuarioId = user.id;
+                usuarioNome = user.nome;
+                localStorage.setItem('shakaUsuario', JSON.stringify(user));
+                atualizarNavbar();
+                fecharModal();
+                alert(`Bem-vindo, ${nome}!`);
+            } else {
+                alert('Senha incorreta!');
+            }
+        } else {
+            alert('Usuario nao encontrado! Cadastre-se primeiro.');
+        }
+    }
+}
+
+function logout() {
+    usuarioAtual = null;
+    usuarioId = crypto.randomUUID();
+    usuarioNome = null;
+    localStorage.removeItem('shakaUsuario');
+    localStorage.setItem('shakaUserId', usuarioId);
+    
+    const btnLogin = document.getElementById('btnLogin');
+    btnLogin.textContent = 'Login';
+    btnLogin.onclick = () => abrirModalLogin();
+    btnLogin.style.background = '#22c55e';
+    btnLogin.style.color = '#031e0b';
+}
+
+function abrirFormEvento() {
+    if (!usuarioAtual) {
+        alert('Faca login para adicionar eventos!');
+        abrirModalLogin();
+        return;
+    }
+    document.getElementById('formEvento').style.display = 'block';
+    document.getElementById('btnAdicionarEvento').style.display = 'none';
+}
+
+function fecharFormEvento() {
+    document.getElementById('formEvento').style.display = 'none';
+    document.getElementById('btnAdicionarEvento').style.display = 'block';
+    document.getElementById('eventoTitulo').value = '';
+    document.getElementById('eventoDescricao').value = '';
+    document.getElementById('eventoData').value = '';
+}
+
+function cancelarEvento() {
+    fecharFormEvento();
+}
+
+async function criarEvento() {
+    if (!praiaSelecionada) {
+        alert('Selecione uma praia primeiro!');
+        return;
+    }
+    
+    const titulo = document.getElementById('eventoTitulo').value.trim();
+    const descricao = document.getElementById('eventoDescricao').value.trim();
+    const data = document.getElementById('eventoData').value;
+    
+    if (!titulo || !data) {
+        alert('Preencha titulo e data!');
+        return;
+    }
+    
+    const novoEvento = {
+        titulo,
+        descricao,
+        data,
+        id_praia: praiaSelecionada.id
+    };
+    
+    let sucesso = await fazerRequisicaoSupabase('evento', '', 'POST', novoEvento);
+    if (!sucesso) {
+        sucesso = await fazerRequisicaoSupabase('Evento', '', 'POST', novoEvento);
+    }
+    
+    if (sucesso) {
+        alert('Evento criado com sucesso!');
+        fecharFormEvento();
+        await carregarEventos(praiaSelecionada.id);
+    } else {
+        alert('Erro ao criar evento. Tente novamente!');
+    }
 }

@@ -2,11 +2,13 @@
 <html lang="pt-br">
 <head>
 <meta charset="UTF-8">
-<title>Shaka 🌊</title>
-
+<title>Shaka - Guia de Praias</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-
 <style>
+* {
+    box-sizing: border-box;
+}
+
 body {
     margin: 0;
     font-family: Inter, system-ui, sans-serif;
@@ -14,7 +16,6 @@ body {
     color: #f8fafc;
 }
 
-/* NAVBAR */
 .navbar {
     display: flex;
     justify-content: space-between;
@@ -30,21 +31,171 @@ body {
 
 .navbar div:last-child {
     color: #94a3b8;
+    display: flex;
+    gap: 20px;
+    align-items: center;
 }
 
-/* LAYOUT */
+.navbar button {
+    background: #22c55e;
+    color: #031e0b;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.navbar button:hover {
+    background: #16a34a;
+}
+
+.usuario-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.usuario-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: #22c55e;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #031e0b;
+    font-weight: 700;
+    font-size: 0.9rem;
+}
+
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.7);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+}
+
+.modal.active {
+    display: flex;
+}
+
+.modal-content {
+    background: rgba(15, 23, 42, 0.98);
+    border: 1px solid rgba(148,163,184,0.15);
+    border-radius: 20px;
+    padding: 32px;
+    max-width: 400px;
+    width: 90%;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    position: relative;
+}
+
+.modal-content h2 {
+    margin: 0 0 24px;
+    font-size: 1.8rem;
+}
+
+.form-group {
+    margin-bottom: 16px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 6px;
+    color: #cbd5e1;
+    font-size: 0.9rem;
+}
+
+.form-group input {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid rgba(148,163,184,0.15);
+    border-radius: 14px;
+    background: rgba(15,23,42,0.9);
+    color: #e2e8f0;
+}
+
+.form-group input:focus {
+    outline: none;
+    border-color: #22c55e;
+    background: rgba(15,23,42,0.95);
+}
+
+.form-buttons {
+    display: flex;
+    gap: 12px;
+    margin-top: 24px;
+}
+
+.form-buttons button {
+    flex: 1;
+    padding: 12px 16px;
+    border: none;
+    border-radius: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.btn-primary {
+    background: #22c55e;
+    color: #031e0b;
+}
+
+.btn-primary:hover {
+    background: #16a34a;
+}
+
+.btn-secondary {
+    background: rgba(148,163,184,0.15);
+    color: #e2e8f0;
+}
+
+.btn-secondary:hover {
+    background: rgba(148,163,184,0.25);
+}
+
+.modal-toggle {
+    color: #22c55e;
+    background: none;
+    border: none;
+    cursor: pointer;
+    margin-top: 12px;
+    font-size: 0.9rem;
+    width: 100%;
+    text-align: center;
+    padding: 0;
+}
+
+.modal-close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: none;
+    border: none;
+    color: #94a3b8;
+    font-size: 1.5rem;
+    cursor: pointer;
+}
+
 .container {
     display: flex;
     height: calc(100vh - 84px);
 }
 
-/* MAPA */
 #map {
     flex: 2;
     height: 100%;
 }
 
-/* SIDEBAR */
 .sidebar {
     flex: 1;
     display: flex;
@@ -191,6 +342,7 @@ body {
     margin-top: 12px;
     background: rgba(15, 23, 42, 0.95);
     color: #e2e8f0;
+    font-family: inherit;
 }
 
 .comentarios-box button {
@@ -228,6 +380,10 @@ body {
     color: #fbbf24;
 }
 
+#btnAdicionarEvento, #btnCriarEvento {
+    font-family: inherit;
+}
+
 @media (max-width: 1100px) {
     .container {
         flex-direction: column;
@@ -240,16 +396,52 @@ body {
 }
 </style>
 </head>
-
 <body>
 
 <div class="navbar">
     <div><b>🌊 Shaka</b></div>
-    <div>Picos | Eventos | Serviços</div>
+    <div>
+        <span id="navInfo" style="cursor: pointer; display: flex; gap: 20px;">
+            <span style="color: #94a3b8;">Picos</span>
+            <span onclick="abrirPainelEventos()" style="color: #22c55e; font-weight: 600; transition: color 0.2s ease;" onmouseover="this.style.color='#16a34a'" onmouseout="this.style.color='#22c55e'">Eventos</span>
+            <span style="color: #94a3b8;">Servicos</span>
+        </span>
+        <button id="btnLogin" onclick="abrirModalLogin()">Login</button>
+    </div>
+</div>
+
+<div class="modal" id="modalAutenticacao">
+    <div class="modal-content">
+        <button class="modal-close" onclick="fecharModal()">&times;</button>
+        <h2 id="modalTitulo">Login</h2>
+        
+        <form id="formAutenticacao" onsubmit="autenticar(event)">
+            <div class="form-group">
+                <label for="inputNome">Nome</label>
+                <input type="text" id="inputNome" placeholder="Seu nome" required>
+            </div>
+            
+            <div class="form-group" id="grupoEmail" style="display: none;">
+                <label for="inputEmail">Email</label>
+                <input type="email" id="inputEmail" placeholder="seu@email.com">
+            </div>
+            
+            <div class="form-group">
+                <label for="inputSenha">Senha</label>
+                <input type="password" id="inputSenha" placeholder="Sua senha" required>
+            </div>
+            
+            <div class="form-buttons">
+                <button type="submit" class="btn-primary" id="btnSubmit">Login</button>
+                <button type="button" class="btn-secondary" onclick="fecharModal()">Cancelar</button>
+            </div>
+        </form>
+        
+        <button class="modal-toggle" onclick="alternarModo()" id="btnAlternarModo">Nao tem conta? Cadastre-se</button>
+    </div>
 </div>
 
 <div class="container">
-
     <div id="map"></div>
 
     <div class="sidebar">
@@ -276,29 +468,51 @@ body {
             </div>
 
             <div class="info-secao">
-                <h4>Análise da Praia</h4>
+                <h4>Analise da Praia</h4>
                 <div id="analisePraia">Nenhuma praia selecionada ainda.</div>
             </div>
 
             <div class="info-secao">
                 <h4>Eventos</h4>
-                <div id="eventos">Use uma praia para carregar os próximos eventos.</div>
+                <div id="eventos">Use uma praia para carregar os proximos eventos.</div>
+                <div style="margin-top: 12px;">
+                    <button id="btnAdicionarEvento" type="button" style="width: 100%; padding: 10px 14px; border: 1px dashed rgba(34,197,94,0.5); border-radius: 10px; background: rgba(34,197,94,0.08); color: #86efac; cursor: pointer; font-weight: 600; transition: background 0.2s ease;" onclick="abrirFormEvento()" onmouseover="this.style.background='rgba(34,197,94,0.15)'" onmouseout="this.style.background='rgba(34,197,94,0.08)'">+ Adicionar Evento</button>
+                </div>
             </div>
 
+            <div class="info-secao" id="formEvento" style="display: none;">
+                <h4>Novo Evento</h4>
+                <div class="form-group" style="margin-bottom: 10px;">
+                    <label for="eventoTitulo">Titulo</label>
+                    <input type="text" id="eventoTitulo" placeholder="Titulo do evento" style="width: 100%; padding: 10px 12px; border: 1px solid rgba(148,163,184,0.15); border-radius: 10px; background: rgba(15,23,42,0.9); color: #e2e8f0;">
+                </div>
+                <div class="form-group" style="margin-bottom: 10px;">
+                    <label for="eventoDescricao">Descricao</label>
+                    <textarea id="eventoDescricao" placeholder="Descricao do evento" style="width: 100%; min-height: 70px; padding: 10px 12px; border: 1px solid rgba(148,163,184,0.15); border-radius: 10px; background: rgba(15,23,42,0.9); color: #e2e8f0; font-family: inherit;"></textarea>
+                </div>
+                <div class="form-group" style="margin-bottom: 10px;">
+                    <label for="eventoData">Data</label>
+                    <input type="date" id="eventoData" style="width: 100%; padding: 10px 12px; border: 1px solid rgba(148,163,184,0.15); border-radius: 10px; background: rgba(15,23,42,0.9); color: #e2e8f0;">
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button type="button" id="btnCriarEvento" onclick="criarEvento()" style="flex: 1; padding: 10px 14px; background: #22c55e; color: #031e0b; border: none; border-radius: 10px; font-weight: 600; cursor: pointer;">Criar</button>
+                    <button type="button" onclick="cancelarEvento()" style="flex: 1; padding: 10px 14px; background: rgba(148,163,184,0.15); color: #e2e8f0; border: none; border-radius: 10px; font-weight: 600; cursor: pointer;">Cancelar</button>
+                </div>
+            </div>
+            
             <div class="info-secao">
-                <h4>Serviços</h4>
-                <div id="servicos">Use uma praia para ver serviços locais.</div>
+                <h4>Servicos</h4>
+                <div id="servicos">Use uma praia para ver servicos locais.</div>
             </div>
 
             <div class="info-secao comentarios-box">
-                <h4>Comentários</h4>
-                <div id="comentarios">Selecione uma praia para carregar comentários.</div>
+                <h4>Comentarios</h4>
+                <div id="comentarios">Selecione uma praia para carregar comentarios.</div>
                 <textarea id="comentario" placeholder="Deixe sua dica ou alerta"></textarea>
-                <button id="btnEnviar" type="button">Enviar comentário</button>
+                <button id="btnEnviar" type="button">Enviar comentario</button>
             </div>
         </div>
     </div>
-
 </div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
