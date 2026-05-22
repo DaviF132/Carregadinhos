@@ -1,50 +1,97 @@
-const SUPABASE_URL = 'https://lrzofimngusbcwlqbsts.supabase.co';
+/* =============================================
+   SHAKA — script.js
+   ============================================= */
+
+const SUPABASE_URL      = 'https://lrzofimngusbcwlqbsts.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxyem9maW1uZ3VzYmN3bHFic3RzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0Nzk4NjgsImV4cCI6MjA5MzA1NTg2OH0.SF21e1Sx_bueRV48exU08NGG2raNahY68nngPtWWLKU';
 
+// ── Estado global ──────────────────────────────────────────────
 let map, markersLayer;
-let praias = [];
+let praias           = [];
+let todosServicos    = [];   // cache para filtro client-side
 let praiaSelecionada = null;
-let usuarioAtual = null;
-let usuarioId = null;
-let usuarioNome = null;
+let usuarioAtual     = null;
+let usuarioId        = null;
+let usuarioNome      = null;
 let modoAutenticacao = 'login';
 
-let listaElement, filtroInput, painelDetalhes, praiaNome, praiaTipo, praiaDados, praiaPerigos;
-let analisePraia, eventosDiv, servicosDiv, comentariosDiv, comentarioInput, btnEnviar;
+// ── Refs DOM ───────────────────────────────────────────────────
+let listaElement, filtroInput, painelDetalhes, praiaNome, praiaTipo,
+    praiaDados, praiaPerigos, analisePraia, eventosDiv,
+    comentariosDiv, comentarioInput, btnEnviar;
 
-window.addEventListener('DOMContentLoaded', () => {
-    iniciarApp();
-});
+// ═════════════════════════════════════════════
+//   INIT
+// ═════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', () => { iniciarApp(); });
 
 async function iniciarApp() {
-    listaElement = document.getElementById('listaPraias');
-    filtroInput = document.getElementById('filtroPraia');
-    painelDetalhes = document.getElementById('painelDetalhes');
-    praiaNome = document.getElementById('praiaNome');
-    praiaTipo = document.getElementById('praiaTipo');
-    praiaDados = document.getElementById('praiaDados');
-    praiaPerigos = document.getElementById('praiaPerigos');
-    analisePraia = document.getElementById('analisePraia');
-    eventosDiv = document.getElementById('eventos');
-    servicosDiv = document.getElementById('servicos');
-    comentariosDiv = document.getElementById('comentarios');
+    listaElement    = document.getElementById('listaPraias');
+    filtroInput     = document.getElementById('filtroPraia');
+    painelDetalhes  = document.getElementById('painelDetalhes');
+    praiaNome       = document.getElementById('praiaNome');
+    praiaTipo       = document.getElementById('praiaTipo');
+    praiaDados      = document.getElementById('praiaDados');
+    praiaPerigos    = document.getElementById('praiaPerigos');
+    analisePraia    = document.getElementById('analisePraia');
+    eventosDiv      = document.getElementById('eventos');
+    comentariosDiv  = document.getElementById('comentarios');
     comentarioInput = document.getElementById('comentario');
-    btnEnviar = document.getElementById('btnEnviar');
-    
+    btnEnviar       = document.getElementById('btnEnviar');
+
     configurarMapa();
     verificarUsuarioLogado();
     btnEnviar.addEventListener('click', enviarComentario);
     filtroInput.addEventListener('input', filtrarPraias);
-    await carregarPraias();
+
+    await Promise.all([
+        carregarPraias(),
+        carregarServicos()
+    ]);
 }
 
+// ═════════════════════════════════════════════
+//   SUPABASE
+// ═════════════════════════════════════════════
+async function fazerRequisicaoSupabase(tabela, filtros = '', metodo = 'GET', corpo = null) {
+    let url = `${SUPABASE_URL}/rest/v1/${tabela}`;
+    if (filtros) url += `?${filtros}`;
+
+    const headers = {
+        'apikey':        SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        'Content-Type':  'application/json',
+        'Prefer':        metodo === 'POST' ? 'return=representation' : ''
+    };
+
+    const opcoes = { method: metodo, headers };
+    if (corpo) opcoes.body = JSON.stringify(corpo);
+
+    try {
+        const response = await fetch(url, opcoes);
+        if (!response.ok) {
+            const msg = await response.text();
+            console.error(`Erro ${response.status} em [${metodo}] ${tabela}:`, msg);
+            return null;
+        }
+        if (metodo === 'POST') return true;
+        return await response.json();
+    } catch (err) {
+        console.error(`Erro ao acessar ${tabela}:`, err);
+        return null;
+    }
+}
+
+// ═════════════════════════════════════════════
+//   AUTH
+// ═════════════════════════════════════════════
 function verificarUsuarioLogado() {
-    const usuarioSalvo = localStorage.getItem('shakaUsuario');
-    if (usuarioSalvo) {
-        const dados = JSON.parse(usuarioSalvo);
+    const salvo = localStorage.getItem('shakaUsuario');
+    if (salvo) {
+        const dados = JSON.parse(salvo);
         usuarioAtual = dados;
-        usuarioId = dados.id;
-        usuarioNome = dados.nome;
+        usuarioId    = dados.id;
+        usuarioNome  = dados.nome;
         atualizarNavbar();
     } else {
         usuarioId = crypto.randomUUID();
@@ -54,260 +101,28 @@ function verificarUsuarioLogado() {
 
 function atualizarNavbar() {
     const btnLogin = document.getElementById('btnLogin');
-    const navInfo = document.getElementById('navInfo');
-    
-    if (usuarioAtual) {
-        const inicial = usuarioNome.charAt(0).toUpperCase();
-        btnLogin.innerHTML = `
-            <div class="usuario-info">
-                <span>${usuarioNome}</span>
-                <div class="usuario-avatar">${inicial}</div>
-            </div>
-        `;
-        btnLogin.onclick = null;
-        btnLogin.style.background = 'transparent';
-        btnLogin.style.color = '#cbd5e1';
-        const menuBtn = btnLogin.querySelector('.usuario-avatar');
-        if (menuBtn) {
-            menuBtn.style.cursor = 'pointer';
-            menuBtn.onclick = () => logout();
-        }
-    }
-}
+    if (!usuarioAtual) return;
 
-function configurarMapa() {
-    map = L.map('map').setView([-3.73, -38.52], 11);
-    markersLayer = L.layerGroup().addTo(map);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; OpenStreetMap & CARTO'
-    }).addTo(map);
-}
-
-async function fazerRequisicaoSupabase(tabela, filtros = '', metodo = 'GET', corpo = null) {
-    let url = `${SUPABASE_URL}/rest/v1/${tabela}`;
-    if (filtros) url += `?${filtros}`;
-    
-    const headers = {
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-        'Content-Type': 'application/json'
-    };
-    
-    const opcoes = { method: metodo, headers };
-    if (corpo) opcoes.body = JSON.stringify(corpo);
-    
-    try {
-        const response = await fetch(url, opcoes);
-        if (!response.ok) {
-            console.error(`Erro ${response.status} em ${tabela}`);
-            return null;
-        }
-        return metodo === 'POST' ? response.ok : await response.json();
-    } catch (erro) {
-        console.error(`Erro ao acessar ${tabela}:`, erro);
-        return null;
-    }
-}
-
-async function carregarPraias() {
-    const filtros = 'order=nivel_popularidade.desc';
-    let data = await fazerRequisicaoSupabase('praia', filtros);
-    
-    if (!data) {
-        listaElement.innerHTML = '<p>Nao foi possivel carregar as praias.</p>';
-        return;
-    }
-
-    praias = data;
-    renderizarLista(praias);
-    atualizarMarcadores(praias);
-}
-
-function atualizarMarcadores(lista) {
-    markersLayer.clearLayers();
-    lista.forEach(p => {
-        const marker = L.marker([p.latitude, p.longitude], {
-            title: p.nome
-        }).addTo(markersLayer);
-
-        marker.bindPopup(`<strong>${p.nome}</strong><br>${p.tipo_onda || 'Sem tipo'}<br>Popularidade: ${p.nivel_popularidade}`);
-        marker.on('click', () => selecionarPraia(p));
-    });
-}
-
-function renderizarLista(lista) {
-    listaElement.innerHTML = '';
-
-    if (!lista.length) {
-        listaElement.innerHTML = '<p>Nenhuma praia encontrada.</p>';
-        return;
-    }
-
-    lista.forEach(p => {
-        const card = document.createElement('div');
-        card.className = 'card';
-        card.innerHTML = `
-            <div class="titulo">${p.nome}</div>
-            <div class="descricao">${p.tipo_onda ? `Onda: ${p.tipo_onda}` : 'Tipo de onda nao informado'} - Popularidade: ${p.nivel_popularidade}/5</div>
-            <div class="descricao">Dificuldade: ${p.nivel_dificuldade}/5 - Perigos: ${p.perigos || 'Nenhum informado'}</div>
-        `;
-        card.addEventListener('click', () => selecionarPraia(p));
-        listaElement.appendChild(card);
-    });
-}
-
-function filtrarPraias() {
-    const termo = filtroInput.value.toLowerCase().trim();
-    const filtradas = praias.filter(p => {
-        return p.nome.toLowerCase().includes(termo)
-            || (p.tipo_onda || '').toLowerCase().includes(termo)
-            || (p.perigos || '').toLowerCase().includes(termo);
-    });
-    renderizarLista(filtradas);
-    atualizarMarcadores(filtradas);
-}
-
-async function selecionarPraia(praia) {
-    praiaSelecionada = praia;
-    painelDetalhes.classList.remove('hidden');
-    praiaNome.textContent = praia.nome;
-    praiaTipo.textContent = praia.tipo_onda ? praia.tipo_onda : 'Tipo de onda nao informado';
-    praiaPerigos.textContent = praia.perigos || 'Nenhum perigo listado.';
-
-    praiaDados.innerHTML = `
-        <div class="info-card"><strong>Popularidade:</strong> ${renderizarEstrelas(praia.nivel_popularidade)}</div>
-        <div class="info-card"><strong>Dificuldade:</strong> ${renderizarEstrelas(praia.nivel_dificuldade)}</div>
-        <div class="info-card"><strong>Latitude:</strong> ${praia.latitude.toFixed(5)}</div>
-        <div class="info-card"><strong>Longitude:</strong> ${praia.longitude.toFixed(5)}</div>
-    `;
-
-    map.flyTo([praia.latitude, praia.longitude], 13, { animate: true });
-
-    await Promise.all([
-        carregarAnalisePraia(praia.id),
-        carregarEventos(praia.id),
-        carregarServicos(praia.id),
-        carregarComentarios(praia.id)
-    ]);
-    
-    fecharFormEvento();
-}
-
-function renderizarEstrelas(valor) {
-    let stars = '';
-    for (let i = 0; i < 5; i++) {
-        stars += i < valor ? '★' : '☆';
-    }
-    return `<span class="rating">${stars}</span>`;
-}
-
-async function carregarAnalisePraia(idPraia) {
-    const filtros = `id_praia=eq.${idPraia}`;
-    const data = await fazerRequisicaoSupabase('analisePraia', filtros);
-
-    if (!data || data.length === 0) {
-        analisePraia.innerHTML = '<div class="info-card">Nenhuma analise disponivel.</div>';
-        return;
-    }
-
-    const analise = data[0];
-    analisePraia.innerHTML = `
-        <div class="info-card"><strong>Pedras:</strong> ${analise.pedras ? 'Sim' : 'Nao'}</div>
-        <div class="info-card"><strong>Corrente forte:</strong> ${analise.corrente_forte ? 'Sim' : 'Nao'}</div>
-        <div class="info-card"><strong>Ondas fortes:</strong> ${analise.ondas_fortes ? 'Sim' : 'Nao'}</div>
-    `;
-}
-
-async function carregarEventos(idPraia) {
-    const filtros = `id_praia=eq.${idPraia}&order=data.asc`;
-    const data = await fazerRequisicaoSupabase('evento', filtros);
-
-    if (!data || data.length === 0) {
-        eventosDiv.innerHTML = '<div class="info-card">Nenhum evento cadastrado para esta praia.</div>';
-        return;
-    }
-
-    eventosDiv.innerHTML = data.map(evento => `
-        <div class="info-card">
-            <strong>${evento.titulo}</strong>
-            <p>${evento.descricao || 'Sem descricao'}</p>
-            <span>${new Date(evento.data).toLocaleDateString('pt-BR')}</span>
-        </div>
-    `).join('');
-}
-
-async function carregarServicos(idPraia) {
-    const filtros = `id_praia=eq.${idPraia}&order=tipo.asc`;
-    const data = await fazerRequisicaoSupabase('servico', filtros);
-
-    if (!data || data.length === 0) {
-        servicosDiv.innerHTML = '<div class="info-card">Nenhum servico cadastrado para esta praia.</div>';
-        return;
-    }
-
-    servicosDiv.innerHTML = data.map(servico => `
-        <div class="info-card">
-            <strong>${servico.nome}</strong>
-            <p>${servico.descricao || 'Descricao nao disponivel.'}</p>
-            <span>${servico.tipo} - ${servico.contato || 'Contato nao informado'}</span>
-        </div>
-    `).join('');
-}
-
-async function carregarComentarios(idPraia) {
-    const filtros = `id_praia=eq.${idPraia}&order=data.desc`;
-    const data = await fazerRequisicaoSupabase('comentario', filtros);
-
-    if (!data || data.length === 0) {
-        comentariosDiv.innerHTML = '<div class="info-card">Seja o primeiro a deixar um comentario.</div>';
-        return;
-    }
-
-    comentariosDiv.innerHTML = data.map(c => `
-        <div class="comentario-item">
-            <span>${c.tipo || 'Comentario'} - ${new Date(c.data).toLocaleString('pt-BR')}</span>
-            <p>${c.texto}</p>
-        </div>
-    `).join('');
-}
-
-async function enviarComentario() {
-    const texto = comentarioInput.value.trim();
-
-    if (!praiaSelecionada) {
-        alert('Selecione uma praia primeiro!');
-        return;
-    }
-
-    if (!texto) {
-        alert('Digite uma mensagem antes de enviar.');
-        return;
-    }
-
-    const sucesso = await fazerRequisicaoSupabase('comentario', '', 'POST', {
-        texto,
-        tipo: 'avaliacao',
-        id_praia: praiaSelecionada.id,
-        id_usuario: usuarioId,
-        data: new Date().toISOString()
-    });
-
-    if (!sucesso) {
-        alert('Nao foi possivel enviar o comentario.');
-        return;
-    }
-
-    comentarioInput.value = '';
-    await carregarComentarios(praiaSelecionada.id);
+    const inicial = usuarioNome.charAt(0).toUpperCase();
+    btnLogin.innerHTML = `
+        <div class="usuario-info">
+            <span>${usuarioNome}</span>
+            <div class="usuario-avatar">${inicial}</div>
+        </div>`;
+    btnLogin.onclick = null;
+    btnLogin.style.background = 'transparent';
+    btnLogin.style.color = '#cbd5e1';
+    const avatar = btnLogin.querySelector('.usuario-avatar');
+    if (avatar) { avatar.onclick = () => logout(); }
 }
 
 function abrirModalLogin() {
     document.getElementById('modalAutenticacao').classList.add('active');
     modoAutenticacao = 'login';
-    document.getElementById('modalTitulo').textContent = 'Login';
-    document.getElementById('grupoEmail').style.display = 'none';
-    document.getElementById('btnSubmit').textContent = 'Login';
-    document.getElementById('btnAlternarModo').textContent = 'Nao tem conta? Cadastre-se';
+    document.getElementById('modalTitulo').textContent     = 'Login';
+    document.getElementById('grupoEmail').style.display    = 'none';
+    document.getElementById('btnSubmit').textContent       = 'Login';
+    document.getElementById('btnAlternarModo').textContent = 'Não tem conta? Cadastre-se';
 }
 
 function fecharModal() {
@@ -318,153 +133,415 @@ function fecharModal() {
 function alternarModo() {
     if (modoAutenticacao === 'login') {
         modoAutenticacao = 'cadastro';
-        document.getElementById('modalTitulo').textContent = 'Cadastro';
-        document.getElementById('grupoEmail').style.display = 'block';
-        document.getElementById('btnSubmit').textContent = 'Cadastrar';
-        document.getElementById('btnAlternarModo').textContent = 'Ja tem conta? Login';
+        document.getElementById('modalTitulo').textContent     = 'Cadastro';
+        document.getElementById('grupoEmail').style.display    = 'block';
+        document.getElementById('btnSubmit').textContent       = 'Cadastrar';
+        document.getElementById('btnAlternarModo').textContent = 'Já tem conta? Login';
     } else {
         modoAutenticacao = 'login';
-        document.getElementById('modalTitulo').textContent = 'Login';
-        document.getElementById('grupoEmail').style.display = 'none';
-        document.getElementById('btnSubmit').textContent = 'Login';
-        document.getElementById('btnAlternarModo').textContent = 'Nao tem conta? Cadastre-se';
+        document.getElementById('modalTitulo').textContent     = 'Login';
+        document.getElementById('grupoEmail').style.display    = 'none';
+        document.getElementById('btnSubmit').textContent       = 'Login';
+        document.getElementById('btnAlternarModo').textContent = 'Não tem conta? Cadastre-se';
     }
 }
 
 async function autenticar(event) {
     event.preventDefault();
-    
-    const nome = document.getElementById('inputNome').value.trim();
+    const nome  = document.getElementById('inputNome').value.trim();
     const email = document.getElementById('inputEmail').value.trim();
     const senha = document.getElementById('inputSenha').value.trim();
-    
-    if (!nome || !senha) {
-        alert('Preencha todos os campos!');
-        return;
-    }
-    
+
+    if (!nome || !senha) { mostrarToast('Preencha todos os campos!', 'erro'); return; }
+
     if (modoAutenticacao === 'cadastro') {
-        if (!email) {
-            alert('Email eh obrigatorio para cadastro!');
-            return;
-        }
-        
-        const novoUser = {
-            id: crypto.randomUUID(),
-            nome,
-            email,
-            senha
-        };
-        
-        let sucesso = await fazerRequisicaoSupabase('Usuario', '', 'POST', novoUser);
-        if (!sucesso) {
-            sucesso = await fazerRequisicaoSupabase('usuario', '', 'POST', novoUser);
-        }
-        
-        if (sucesso) {
-            usuarioAtual = novoUser;
-            usuarioId = novoUser.id;
-            usuarioNome = nome;
+        if (!email) { mostrarToast('Email é obrigatório para cadastro!', 'erro'); return; }
+        const novoUser = { id: crypto.randomUUID(), nome, email, senha };
+        let ok = await fazerRequisicaoSupabase('usuario', '', 'POST', novoUser);
+        if (!ok) ok = await fazerRequisicaoSupabase('Usuario', '', 'POST', novoUser);
+        if (ok) {
+            usuarioAtual = novoUser; usuarioId = novoUser.id; usuarioNome = nome;
             localStorage.setItem('shakaUsuario', JSON.stringify(novoUser));
-            atualizarNavbar();
-            fecharModal();
-            alert('Cadastro realizado com sucesso!');
-        } else {
-            alert('Erro ao cadastrar. Tente novamente!');
-        }
+            atualizarNavbar(); fecharModal();
+            mostrarToast(`Bem-vindo, ${nome}! 🌊`, 'ok');
+        } else { mostrarToast('Erro ao cadastrar. Tente novamente!', 'erro'); }
     } else {
-        let usuarios = await fazerRequisicaoSupabase('Usuario', `nome=eq.${encodeURIComponent(nome)}`);
-        if (!usuarios) {
-            usuarios = await fazerRequisicaoSupabase('usuario', `nome=eq.${encodeURIComponent(nome)}`);
-        }
-        
+        let usuarios = await fazerRequisicaoSupabase('usuario', `nome=eq.${encodeURIComponent(nome)}`);
+        if (!usuarios) usuarios = await fazerRequisicaoSupabase('Usuario', `nome=eq.${encodeURIComponent(nome)}`);
         if (usuarios && usuarios.length > 0) {
             const user = usuarios[0];
             if (user.senha === senha) {
-                usuarioAtual = user;
-                usuarioId = user.id;
-                usuarioNome = user.nome;
+                usuarioAtual = user; usuarioId = user.id; usuarioNome = user.nome;
                 localStorage.setItem('shakaUsuario', JSON.stringify(user));
-                atualizarNavbar();
-                fecharModal();
-                alert(`Bem-vindo, ${nome}!`);
-            } else {
-                alert('Senha incorreta!');
-            }
-        } else {
-            alert('Usuario nao encontrado! Cadastre-se primeiro.');
-        }
+                atualizarNavbar(); fecharModal();
+                mostrarToast(`Bem-vindo de volta, ${nome}! 🤙`, 'ok');
+            } else { mostrarToast('Senha incorreta!', 'erro'); }
+        } else { mostrarToast('Usuário não encontrado! Cadastre-se primeiro.', 'erro'); }
     }
 }
 
 function logout() {
     usuarioAtual = null;
-    usuarioId = crypto.randomUUID();
-    usuarioNome = null;
+    usuarioId    = crypto.randomUUID();
+    usuarioNome  = null;
     localStorage.removeItem('shakaUsuario');
     localStorage.setItem('shakaUserId', usuarioId);
-    
     const btnLogin = document.getElementById('btnLogin');
     btnLogin.textContent = 'Login';
     btnLogin.onclick = () => abrirModalLogin();
-    btnLogin.style.background = '#22c55e';
-    btnLogin.style.color = '#031e0b';
+    btnLogin.style.background = '';
+    btnLogin.style.color = '';
+    mostrarToast('Até logo! 🌊', 'ok');
+}
+
+// ═════════════════════════════════════════════
+//   MAPA
+// ═════════════════════════════════════════════
+function configurarMapa() {
+    map = L.map('map').setView([-3.73, -38.52], 11);
+    markersLayer = L.layerGroup().addTo(map);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap & CARTO'
+    }).addTo(map);
+}
+
+function atualizarMarcadores(lista) {
+    markersLayer.clearLayers();
+    lista.forEach(p => {
+        const marker = L.marker([p.latitude, p.longitude], { title: p.nome }).addTo(markersLayer);
+        marker.bindPopup(`<strong>${p.nome}</strong><br>${p.tipo_onda || 'Sem tipo'}<br>Popularidade: ${p.nivel_popularidade}`);
+        marker.on('click', () => selecionarPraia(p));
+    });
+}
+
+// ═════════════════════════════════════════════
+//   PRAIAS
+// ═════════════════════════════════════════════
+async function carregarPraias() {
+    const data = await fazerRequisicaoSupabase('praia', 'order=nivel_popularidade.desc');
+    if (!data) { listaElement.innerHTML = '<p style="color:var(--text-3);padding:16px">Não foi possível carregar as praias.</p>'; return; }
+    praias = data;
+    renderizarLista(praias);
+    atualizarMarcadores(praias);
+}
+
+function renderizarLista(lista) {
+    listaElement.innerHTML = '';
+    if (!lista.length) {
+        listaElement.innerHTML = '<p style="color:var(--text-3);padding:16px;font-size:.9rem">Nenhuma praia encontrada.</p>';
+        return;
+    }
+    lista.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+            <div class="titulo">${p.nome}</div>
+            <div class="descricao">${p.tipo_onda ? `Onda: ${p.tipo_onda}` : 'Tipo de onda não informado'} · Pop: ${p.nivel_popularidade}/5</div>
+            <div class="descricao">Dificuldade: ${p.nivel_dificuldade}/5 · ${p.perigos || 'Sem perigos informados'}</div>`;
+        card.addEventListener('click', () => selecionarPraia(p));
+        listaElement.appendChild(card);
+    });
+}
+
+function filtrarPraias() {
+    const t = filtroInput.value.toLowerCase().trim();
+    const filtradas = praias.filter(p =>
+        p.nome.toLowerCase().includes(t) ||
+        (p.tipo_onda || '').toLowerCase().includes(t) ||
+        (p.perigos || '').toLowerCase().includes(t)
+    );
+    renderizarLista(filtradas);
+    atualizarMarcadores(filtradas);
+}
+
+async function selecionarPraia(praia) {
+    praiaSelecionada = praia;
+    painelDetalhes.classList.remove('hidden');
+    praiaNome.textContent    = praia.nome;
+    praiaTipo.textContent    = praia.tipo_onda || 'Tipo não informado';
+    praiaPerigos.textContent = praia.perigos   || 'Nenhum perigo listado.';
+
+    praiaDados.innerHTML = `
+        <div class="info-card"><strong>Popularidade</strong>${renderizarEstrelas(praia.nivel_popularidade)}</div>
+        <div class="info-card"><strong>Dificuldade</strong>${renderizarEstrelas(praia.nivel_dificuldade)}</div>
+        <div class="info-card"><strong>Latitude</strong>${praia.latitude.toFixed(5)}</div>
+        <div class="info-card"><strong>Longitude</strong>${praia.longitude.toFixed(5)}</div>`;
+
+    map.flyTo([praia.latitude, praia.longitude], 13, { animate: true });
+
+    await Promise.all([
+        carregarAnalisePraia(praia.id),
+        carregarEventos(praia.id),
+        carregarComentarios(praia.id)
+    ]);
+    fecharFormEvento();
+}
+
+function renderizarEstrelas(valor) {
+    let s = '';
+    for (let i = 0; i < 5; i++) s += i < valor ? '★' : '☆';
+    return `<span class="rating">${s}</span>`;
+}
+
+// ═════════════════════════════════════════════
+//   ANÁLISE DE PRAIA
+// ═════════════════════════════════════════════
+async function carregarAnalisePraia(idPraia) {
+    const data = await fazerRequisicaoSupabase('analisePraia', `id_praia=eq.${idPraia}`);
+    if (!data || data.length === 0) {
+        analisePraia.innerHTML = '<div class="info-card">Nenhuma análise disponível.</div>';
+        return;
+    }
+    const a = data[0];
+    analisePraia.innerHTML = `
+        <div class="info-card"><strong>Pedras</strong>${a.pedras ? 'Sim' : 'Não'}</div>
+        <div class="info-card"><strong>Corrente forte</strong>${a.corrente_forte ? 'Sim' : 'Não'}</div>
+        <div class="info-card"><strong>Ondas fortes</strong>${a.ondas_fortes ? 'Sim' : 'Não'}</div>`;
+}
+
+// ═════════════════════════════════════════════
+//   EVENTOS
+// ═════════════════════════════════════════════
+async function carregarEventos(idPraia) {
+    const data = await fazerRequisicaoSupabase('evento', `id_praia=eq.${idPraia}&order=data.asc`);
+    if (!data || data.length === 0) {
+        eventosDiv.innerHTML = '<div class="info-card">Nenhum evento cadastrado.</div>';
+        return;
+    }
+    eventosDiv.innerHTML = data.map(e => `
+        <div class="info-card">
+            <strong>${e.titulo}</strong>
+            <p style="margin-top:4px">${e.descricao || 'Sem descrição'}</p>
+            <span style="font-size:.78rem;color:var(--text-3)">${new Date(e.data).toLocaleDateString('pt-BR')}</span>
+        </div>`).join('');
 }
 
 function abrirFormEvento() {
-    if (!usuarioAtual) {
-        alert('Faca login para adicionar eventos!');
-        abrirModalLogin();
-        return;
-    }
-    document.getElementById('formEvento').style.display = 'block';
+    if (!usuarioAtual) { mostrarToast('Faça login para adicionar eventos!', 'erro'); abrirModalLogin(); return; }
+    document.getElementById('formEvento').style.display         = 'block';
     document.getElementById('btnAdicionarEvento').style.display = 'none';
 }
 
 function fecharFormEvento() {
-    document.getElementById('formEvento').style.display = 'none';
+    document.getElementById('formEvento').style.display         = 'none';
     document.getElementById('btnAdicionarEvento').style.display = 'block';
-    document.getElementById('eventoTitulo').value = '';
+    document.getElementById('eventoTitulo').value    = '';
     document.getElementById('eventoDescricao').value = '';
-    document.getElementById('eventoData').value = '';
+    document.getElementById('eventoData').value      = '';
 }
 
-function cancelarEvento() {
-    fecharFormEvento();
-}
+function cancelarEvento() { fecharFormEvento(); }
 
 async function criarEvento() {
-    if (!praiaSelecionada) {
-        alert('Selecione uma praia primeiro!');
-        return;
-    }
-    
-    const titulo = document.getElementById('eventoTitulo').value.trim();
+    if (!praiaSelecionada) { mostrarToast('Selecione uma praia primeiro!', 'erro'); return; }
+    const titulo   = document.getElementById('eventoTitulo').value.trim();
     const descricao = document.getElementById('eventoDescricao').value.trim();
-    const data = document.getElementById('eventoData').value;
-    
-    if (!titulo || !data) {
-        alert('Preencha titulo e data!');
-        return;
-    }
-    
-    const novoEvento = {
-        titulo,
-        descricao,
-        data,
-        id_praia: praiaSelecionada.id
-    };
-    
-    let sucesso = await fazerRequisicaoSupabase('evento', '', 'POST', novoEvento);
-    if (!sucesso) {
-        sucesso = await fazerRequisicaoSupabase('Evento', '', 'POST', novoEvento);
-    }
-    
-    if (sucesso) {
-        alert('Evento criado com sucesso!');
+    const data     = document.getElementById('eventoData').value;
+    if (!titulo || !data) { mostrarToast('Preencha título e data!', 'erro'); return; }
+
+    const novoEvento = { titulo, descricao, data, id_praia: praiaSelecionada.id };
+    let ok = await fazerRequisicaoSupabase('evento', '', 'POST', novoEvento);
+    if (!ok) ok = await fazerRequisicaoSupabase('Evento', '', 'POST', novoEvento);
+
+    if (ok) {
+        mostrarToast('Evento criado! 📅', 'ok');
         fecharFormEvento();
         await carregarEventos(praiaSelecionada.id);
-    } else {
-        alert('Erro ao criar evento. Tente novamente!');
+    } else { mostrarToast('Erro ao criar evento.', 'erro'); }
+}
+
+// ═════════════════════════════════════════════
+//   COMENTÁRIOS
+// ═════════════════════════════════════════════
+async function carregarComentarios(idPraia) {
+    const data = await fazerRequisicaoSupabase('comentario', `id_praia=eq.${idPraia}&order=data.desc`);
+    if (!data || data.length === 0) {
+        comentariosDiv.innerHTML = '<div class="info-card">Seja o primeiro a comentar.</div>';
+        return;
     }
+    comentariosDiv.innerHTML = data.map(c => `
+        <div class="comentario-item">
+            <span>${c.tipo || 'Comentário'} · ${new Date(c.data).toLocaleString('pt-BR')}</span>
+            <p>${c.texto}</p>
+        </div>`).join('');
+}
+
+async function enviarComentario() {
+    if (!praiaSelecionada) { mostrarToast('Selecione uma praia primeiro!', 'erro'); return; }
+    const texto = comentarioInput.value.trim();
+    if (!texto) { mostrarToast('Digite uma mensagem antes de enviar.', 'erro'); return; }
+
+    const ok = await fazerRequisicaoSupabase('comentario', '', 'POST', {
+        texto, tipo: 'avaliacao',
+        id_praia: praiaSelecionada.id,
+        id_usuario: usuarioId,
+        data: new Date().toISOString()
+    });
+
+    if (ok) {
+        comentarioInput.value = '';
+        mostrarToast('Comentário enviado! 🤙', 'ok');
+        await carregarComentarios(praiaSelecionada.id);
+    } else { mostrarToast('Não foi possível enviar o comentário.', 'erro'); }
+}
+
+// ═════════════════════════════════════════════
+//   SERVIÇOS  (independentes de praia)
+// ═════════════════════════════════════════════
+const SERVICO_META = {
+    aluguel:     { icone: '🏄', label: 'Aluguel'       },
+    aula:        { icone: '🎓', label: 'Aula de Surf'  },
+    reparo:      { icone: '🔧', label: 'Reparo'         },
+    hospedagem:  { icone: '🏠', label: 'Hospedagem'     },
+    alimentacao: { icone: '🍽️', label: 'Alimentação'    },
+    transporte:  { icone: '🚐', label: 'Transporte'     },
+    fotografia:  { icone: '📷', label: 'Fotografia'     },
+    outro:       { icone: '📌', label: 'Outro'          },
+};
+
+async function carregarServicos() {
+    const grid = document.getElementById('listaServicos');
+    grid.innerHTML = renderizarSkeletonServicos();
+
+    const data = await fazerRequisicaoSupabase('servico', 'order=id.desc');
+    todosServicos = data || [];
+    renderizarGridServicos(todosServicos);
+}
+
+function renderizarSkeletonServicos() {
+    return Array(6).fill(0).map(() => `
+        <div class="servico-card" style="opacity:.4;pointer-events:none">
+            <div class="servico-card-topo">
+                <div class="servico-icone-wrap" style="background:var(--bg-card-2)"></div>
+                <div style="flex:1">
+                    <div style="height:14px;background:var(--bg-card-2);border-radius:6px;width:70%;margin-bottom:8px"></div>
+                    <div style="height:10px;background:var(--bg-card-2);border-radius:99px;width:40%"></div>
+                </div>
+            </div>
+            <div style="height:48px;background:var(--bg-card-2);border-radius:8px"></div>
+            <div class="servico-rodape" style="border-top:1px solid var(--border)">
+                <div style="height:10px;background:var(--bg-card-2);border-radius:6px;width:55%"></div>
+            </div>
+        </div>`).join('');
+}
+
+function renderizarGridServicos(lista) {
+    const grid = document.getElementById('listaServicos');
+
+    if (!lista.length) {
+        grid.innerHTML = `
+            <div class="servicos-vazio">
+                <div class="servicos-vazio-icone">🏄</div>
+                <p class="servicos-vazio-texto">Nenhum serviço encontrado.</p>
+                <p class="servicos-vazio-sub">Seja o primeiro a cadastrar um serviço para a comunidade!</p>
+            </div>`;
+        return;
+    }
+
+    grid.innerHTML = lista.map(s => {
+        const meta    = SERVICO_META[s.tipo] || SERVICO_META.outro;
+        const contato = s.contato
+            ? `<a class="servico-contato" href="tel:${s.contato}">${s.contato}</a>`
+            : `<span class="servico-sem-contato">Contato não informado</span>`;
+        return `
+        <div class="servico-card" data-tipo="${s.tipo || 'outro'}">
+            <div class="servico-card-topo">
+                <div class="servico-icone-wrap">${meta.icone}</div>
+                <div>
+                    <span class="servico-nome">${s.nome}</span>
+                    <span class="servico-tipo-badge">${meta.label}</span>
+                </div>
+            </div>
+            ${s.descricao ? `<p class="servico-descricao">${s.descricao}</p>` : ''}
+            <div class="servico-rodape">${contato}</div>
+        </div>`;
+    }).join('');
+}
+
+// Filtro client-side (tipo + busca por texto)
+function filtrarServicos(tipoAtivo = '') {
+    const termo = (document.getElementById('filtroServico')?.value || '').toLowerCase().trim();
+    const resultado = todosServicos.filter(s => {
+        const bateTipo = !tipoAtivo || s.tipo === tipoAtivo;
+        const bateTexto = !termo ||
+            (s.nome        || '').toLowerCase().includes(termo) ||
+            (s.descricao   || '').toLowerCase().includes(termo) ||
+            (s.tipo        || '').toLowerCase().includes(termo) ||
+            (s.contato     || '').toLowerCase().includes(termo);
+        return bateTipo && bateTexto;
+    });
+    renderizarGridServicos(resultado);
+}
+
+// ── Modal de serviço ──────────────────────────────────────────
+function abrirModalServico() {
+    if (!usuarioAtual) {
+        mostrarToast('Faça login para cadastrar um serviço!', 'erro');
+        abrirModalLogin();
+        return;
+    }
+    document.getElementById('modalServico').classList.add('active');
+}
+
+function fecharModalServico() {
+    document.getElementById('modalServico').classList.remove('active');
+    document.getElementById('servicoNome').value      = '';
+    document.getElementById('servicoTipo').value      = '';
+    document.getElementById('servicoDescricao').value = '';
+    document.getElementById('servicoContato').value   = '';
+}
+
+async function criarServico() {
+    const nome      = document.getElementById('servicoNome').value.trim();
+    const tipo      = document.getElementById('servicoTipo').value;
+    const descricao = document.getElementById('servicoDescricao').value.trim();
+    const contato   = document.getElementById('servicoContato').value.trim();
+
+    if (!nome || !tipo) {
+        mostrarToast('Preencha pelo menos o nome e o tipo do serviço!', 'erro');
+        return;
+    }
+
+    // Feedback no botão
+    const btn = document.getElementById('btnSalvarServico');
+    const txtOriginal = btn.textContent;
+    btn.innerHTML = '<span class="loading-spinner"></span> Salvando...';
+    btn.disabled  = true;
+
+    const novoServico = {
+        nome,
+        tipo,
+        descricao: descricao || null,
+        contato:   contato   || null
+        // SEM id_praia — tabela não tem essa coluna
+    };
+
+    const ok = await fazerRequisicaoSupabase('servico', '', 'POST', novoServico);
+
+    btn.textContent = txtOriginal;
+    btn.disabled    = false;
+
+    if (ok) {
+        mostrarToast(`"${nome}" cadastrado com sucesso! 🤙`, 'ok');
+        fecharModalServico();
+        await carregarServicos(); // recarrega o grid
+    } else {
+        mostrarToast('Erro ao cadastrar. Verifique as permissões no Supabase.', 'erro');
+    }
+}
+
+// ═════════════════════════════════════════════
+//   TOAST
+// ═════════════════════════════════════════════
+function mostrarToast(mensagem, tipo = 'ok') {
+    let toast = document.getElementById('shakaToast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'shakaToast';
+        document.body.appendChild(toast);
+    }
+    toast.textContent = mensagem;
+    toast.className   = `shaka-toast shaka-toast--${tipo} shaka-toast--show`;
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(() => toast.classList.remove('shaka-toast--show'), 3200);
 }
