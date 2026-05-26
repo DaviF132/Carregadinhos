@@ -698,6 +698,69 @@ a { text-decoration: none; color: inherit; }
 .btn-link:hover { opacity:1; }
 
 /* =============================================
+   CLIMA / VENTO / ONDAS — widget
+   ============================================= */
+.clima-painel {
+  margin: 0 0 18px;
+  background: linear-gradient(135deg, rgba(45,212,191,0.06) 0%, rgba(11,20,34,0.9) 100%);
+  border: 1px solid rgba(45,212,191,0.18);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.clima-loading {
+  display: flex; align-items: center; gap: 8px;
+  padding: 18px 16px; font-size: 0.82rem; color: var(--text-3);
+}
+.clima-erro {
+  padding: 16px; font-size: 0.82rem; color: #f87171; text-align: center;
+}
+.clima-principal {
+  display: flex; align-items: center; gap: 12px;
+  padding: 16px 16px 12px; border-bottom: 1px solid var(--border);
+}
+.clima-temp-wrap { display: flex; align-items: center; gap: 12px; flex: 1; }
+.clima-icone-grande { font-size: 2rem; line-height: 1; }
+.clima-temp {
+  font-family: var(--font-display); font-size: 2rem;
+  letter-spacing: 0.04em; color: var(--text-1); line-height: 1;
+}
+.clima-desc { font-size: 0.8rem; color: var(--text-2); font-weight: 500; }
+.clima-atualizado {
+  font-family: var(--font-mono); font-size: 0.65rem;
+  color: var(--text-3); letter-spacing: 0.06em; margin-left: auto; white-space: nowrap;
+}
+.clima-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 1px; background: var(--border); }
+.clima-item {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 3px; padding: 12px 8px; background: rgba(11,20,34,0.7); text-align: center;
+}
+.clima-item-icon { color: var(--teal); opacity: 0.7; margin-bottom: 1px; }
+.clima-item-label {
+  font-size: 0.65rem; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.clima-item-val {
+  font-family: var(--font-mono); font-size: 0.92rem;
+  font-weight: 700; color: var(--text-1); line-height: 1.2;
+}
+.clima-item-sub { font-size: 0.68rem; color: var(--text-3); }
+.clima-score-wrap { padding: 12px 16px 14px; border-top: 1px solid var(--border); }
+.clima-score-label {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: 7px; font-size: 0.75rem; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3);
+}
+.clima-score-num { font-family: var(--font-mono); font-size: 0.88rem; color: var(--text-1); }
+.clima-score-bar {
+  height: 5px; background: var(--border-hover); border-radius: 99px; overflow: hidden; margin-bottom: 6px;
+}
+.clima-score-fill {
+  height: 100%; border-radius: 99px;
+  transition: width 0.8s cubic-bezier(.22,1,.36,1), background 0.4s;
+}
+.clima-score-desc { font-size: 0.75rem; color: var(--text-2); }
+
+/* =============================================
    SPINNER / LOADING
    ============================================= */
 .loading-spinner {

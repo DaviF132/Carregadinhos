@@ -119,6 +119,76 @@
 
         <div id="praiaDados" class="praia-dados"></div>
 
+        <!-- CLIMA AO VIVO -->
+        <div class="clima-painel" id="climaPainel">
+          <div class="clima-loading" id="climaLoading">
+            <span class="loading-spinner"></span> Carregando condições...
+          </div>
+          <div class="clima-conteudo hidden" id="climaConteudo">
+            <div class="clima-principal">
+              <div class="clima-temp-wrap">
+                <span class="clima-icone-grande" id="climaIcone">🌤</span>
+                <div>
+                  <span class="clima-temp" id="climaTemp">--°C</span>
+                  <span class="clima-desc" id="climaDesc">--</span>
+                </div>
+              </div>
+              <div class="clima-atualizado" id="climaAtualizado"></div>
+            </div>
+            <div class="clima-grid">
+              <div class="clima-item">
+                <svg class="clima-item-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2"/><path d="M9.6 4.6A2 2 0 1 1 11 8H2"/><path d="M12.6 19.4A2 2 0 1 0 14 16H2"/></svg>
+                <span class="clima-item-label">Vento</span>
+                <span class="clima-item-val" id="climaVento">--</span>
+                <span class="clima-item-sub" id="climaVentoDirecao">--</span>
+              </div>
+              <div class="clima-item">
+                <svg class="clima-item-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 7 13 17 8 12 1 19"/><polyline points="17 7 23 7 23 13"/></svg>
+                <span class="clima-item-label">Rajada</span>
+                <span class="clima-item-val" id="climaRajada">--</span>
+                <span class="clima-item-sub">máx.</span>
+              </div>
+              <div class="clima-item">
+                <svg class="clima-item-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12 Q6 6 12 12 Q18 18 22 12"/></svg>
+                <span class="clima-item-label">Onda</span>
+                <span class="clima-item-val" id="climaOnda">--</span>
+                <span class="clima-item-sub" id="climaOndaPeriodo">--</span>
+              </div>
+              <div class="clima-item">
+                <svg class="clima-item-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12 Q6 18 12 12 Q18 6 22 12"/><path d="M2 18 Q6 24 12 18 Q18 12 22 18"/></svg>
+                <span class="clima-item-label">Maré</span>
+                <span class="clima-item-val" id="climaMare">--</span>
+                <span class="clima-item-sub" id="climaMareTendencia">--</span>
+              </div>
+              <div class="clima-item">
+                <svg class="clima-item-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 1 7 7c0 5-7 13-7 13S5 14 5 9a7 7 0 0 1 7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+                <span class="clima-item-label">Umidade</span>
+                <span class="clima-item-val" id="climaUmidade">--</span>
+                <span class="clima-item-sub">relativa</span>
+              </div>
+              <div class="clima-item">
+                <svg class="clima-item-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                <span class="clima-item-label">UV</span>
+                <span class="clima-item-val" id="climaUV">--</span>
+                <span class="clima-item-sub" id="climaUVLabel">--</span>
+              </div>
+            </div>
+            <div class="clima-score-wrap">
+              <div class="clima-score-label">
+                <span>Score para surf</span>
+                <span class="clima-score-num" id="climaScoreNum">--/10</span>
+              </div>
+              <div class="clima-score-bar">
+                <div class="clima-score-fill" id="climaScoreFill" style="width:0%"></div>
+              </div>
+              <span class="clima-score-desc" id="climaScoreDesc">Analisando condições...</span>
+            </div>
+          </div>
+          <div class="clima-erro hidden" id="climaErro">
+            Não foi possível carregar as condições climáticas.
+          </div>
+        </div>
+
         <div class="info-secao">
           <h4>⚠ Perigos</h4>
           <p id="praiaPerigos"></p>

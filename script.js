@@ -270,6 +270,7 @@ async function selecionarPraia(praia) {
     map.flyTo([praia.latitude, praia.longitude], 13, { animate: true });
 
     await Promise.all([
+        carregarClima(praia.latitude, praia.longitude),
         carregarAnalisePraia(praia.id),
         carregarEventos(praia.id),
         carregarComentarios(praia.id)
@@ -281,6 +282,204 @@ function renderizarEstrelas(valor) {
     let s = '';
     for (let i = 0; i < 5; i++) s += i < valor ? '★' : '☆';
     return `<span class="rating">${s}</span>`;
+}
+
+// ═════════════════════════════════════════════
+//   CLIMA · VENTO · ONDAS (Open-Meteo — grátis)
+// ═════════════════════════════════════════════
+
+// WMO weather code → emoji + descrição
+const WMO_CODES = {
+    0:'☀️|Céu limpo',       1:'🌤|Poucas nuvens',         2:'⛅|Parcialmente nublado', 3:'☁️|Nublado',
+    45:'🌫|Névoa',           48:'🌫|Geada de névoa',
+    51:'🌦|Chuvisco leve',   53:'🌦|Chuvisco mod.',        55:'🌧|Chuvisco denso',
+    61:'🌧|Chuva leve',      63:'🌧|Chuva mod.',           65:'🌧|Chuva forte',
+    80:'🌦|Pancadas leves',  81:'🌧|Pancadas mod.',        82:'⛈|Pancadas fortes',
+    95:'⛈|Trovoada',        96:'⛈|Trovoada c/ granizo',  99:'⛈|Trovoada forte',
+};
+
+// graus → seta cardinal
+function grausParaDirecao(graus) {
+    const dirs  = ['N','NNE','NE','ENE','L','ESE','SE','SSE','S','SSO','SO','OSO','O','ONO','NO','NNO'];
+    const setas = ['↑','↗','↗','↗','→','↘','↘','↘','↓','↙','↙','↙','←','↖','↖','↖'];
+    const idx   = Math.round(((graus % 360) + 360) % 360 / 22.5) % 16;
+    return `${setas[idx]} ${dirs[idx]}`;
+}
+
+// Estimativa de ondas baseada no vento local quando marine API não cobre a área
+// Fórmula simplificada de Sverdrup-Munk: H ≈ 0.0248 * V^2 / g  (fetch ~200km)
+function estimarOndas(ventoKmh) {
+    const v   = ventoKmh / 3.6;             // m/s
+    const g   = 9.81;
+    const F   = 200_000;                    // fetch em metros (Atlântico)
+    const H   = 0.0248 * (v * v);          // altura significativa (m)
+    const T   = 0.4552 * Math.sqrt(H * g); // período (s)  — aprox. Hunt
+    return {
+        alturaOnda:  Math.min(parseFloat(H.toFixed(1)), 6),
+        periodoOnda: Math.min(Math.round(T), 20),
+    };
+}
+
+// Score de surf 0-10
+function calcularScoreSurf({ alturaOnda, periodoOnda, ventoKmh, wmoCode }) {
+    let score = 0;
+
+    if      (alturaOnda >= 0.8 && alturaOnda < 1.5)  score += 3;
+    else if (alturaOnda >= 1.5 && alturaOnda <= 2.5) score += 4;
+    else if (alturaOnda >= 0.5 && alturaOnda < 0.8)  score += 1;
+    else if (alturaOnda > 2.5  && alturaOnda <= 3.5) score += 2;
+    else if (alturaOnda > 3.5)                        score += 1;
+
+    if      (periodoOnda >= 14) score += 3;
+    else if (periodoOnda >= 10) score += 2;
+    else if (periodoOnda >= 7)  score += 1;
+
+    if      (ventoKmh < 10) score += 2;
+    else if (ventoKmh < 20) score += 1;
+    else if (ventoKmh > 40) score -= 1;
+
+    if ([65,80,81,82,95,96,99].includes(wmoCode)) score -= 1;
+
+    score = Math.max(0, Math.min(10, score));
+
+    const descs = [
+        'Sem condições','Muito difícil','Ruim','Fraco','Razoável',
+        'Ok p/ iniciantes','Bom','Muito bom','Excelente','Épico','Épico! 🤙'
+    ];
+    return { score, desc: descs[score] };
+}
+
+// fetch com timeout
+function fetchComTimeout(url, ms = 8000) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ms);
+    return fetch(url, { signal: ctrl.signal })
+        .finally(() => clearTimeout(timer));
+}
+
+async function carregarClima(lat, lon) {
+    const elLoading  = document.getElementById('climaLoading');
+    const elConteudo = document.getElementById('climaConteudo');
+    const elErro     = document.getElementById('climaErro');
+
+    elLoading.classList.remove('hidden');
+    elConteudo.classList.add('hidden');
+    elErro.classList.add('hidden');
+
+    // ── 1. Clima atmosférico (sempre disponível) ──────────────
+    let atm;
+    try {
+        const urlAtm =
+            `https://api.open-meteo.com/v1/forecast?` +
+            `latitude=${lat}&longitude=${lon}` +
+            `&current=temperature_2m,relative_humidity_2m,weather_code,` +
+            `wind_speed_10m,wind_gusts_10m,wind_direction_10m,uv_index` +
+            `&wind_speed_unit=kmh&timezone=America%2FFortaleza`;
+
+        const res = await fetchComTimeout(urlAtm, 8000);
+
+        if (!res.ok) {
+            const txt = await res.text();
+            throw new Error(`HTTP ${res.status}: ${txt}`);
+        }
+        atm = await res.json();
+    } catch (err) {
+        console.error('[Clima] Falha na API atmosférica:', err.message);
+        elLoading.classList.add('hidden');
+        elErro.classList.remove('hidden');
+        return;
+    }
+
+    // ── 2. Ondas marinhas (best-effort — falha silenciosa) ────
+    let ondas = null;
+    try {
+        const urlOnda =
+            `https://marine-api.open-meteo.com/v1/marine?` +
+            `latitude=${lat}&longitude=${lon}` +
+            `&current=wave_height,wave_period,wave_direction,swell_wave_height` +
+            `&timezone=America%2FFortaleza`;
+
+        const res = await fetchComTimeout(urlOnda, 7000);
+
+        if (res.ok) {
+            const json = await res.json();
+            // Confirma que os campos existem e são válidos
+            if (json.current && json.current.wave_height != null) {
+                ondas = json.current;
+            }
+        }
+    } catch (err) {
+        console.warn('[Clima] Marine API indisponível para estas coords — usando estimativa.');
+    }
+
+    // ── 3. Montar dados ───────────────────────────────────────
+    const c = atm.current;
+
+    const wmoCode   = c.weather_code        ?? 0;
+    const ventoKmh  = c.wind_speed_10m      ?? 0;
+    const rajadaKmh = c.wind_gusts_10m      ?? 0;
+    const dirVento  = c.wind_direction_10m  ?? 0;
+    const umidade   = c.relative_humidity_2m ?? 0;
+    const uvIndex   = c.uv_index            ?? 0;
+    const temp      = c.temperature_2m      ?? 0;
+
+    // Ondas: usa marine se disponível, senão estima pelo vento
+    let alturaOnda, periodoOnda, dirOnda, swellH;
+    if (ondas) {
+        alturaOnda  = ondas.wave_height       ?? 0;
+        periodoOnda = ondas.wave_period       ?? 0;
+        dirOnda     = ondas.wave_direction    ?? dirVento;
+        swellH      = ondas.swell_wave_height ?? alturaOnda;
+    } else {
+        const est  = estimarOndas(ventoKmh);
+        alturaOnda  = est.alturaOnda;
+        periodoOnda = est.periodoOnda;
+        dirOnda     = dirVento;
+        swellH      = alturaOnda;
+    }
+
+    const { score, desc: scoreDesc } = calcularScoreSurf({ alturaOnda, periodoOnda, ventoKmh, wmoCode });
+
+    const wmoInfo  = WMO_CODES[wmoCode] ?? '🌡|--';
+    const [emoji, descClima] = wmoInfo.split('|');
+
+    const uvLabels = ['Mínimo','Baixo','Moderado','Alto','Muito alto','Extremo'];
+    const uvLabel  = uvLabels[Math.min(Math.floor(uvIndex / 3), 5)];
+
+    const hora = new Date(c.time ?? Date.now()).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+    const fontOnda = ondas ? '' : ' (est.)';
+
+    // ── 4. Preencher DOM ──────────────────────────────────────
+    document.getElementById('climaIcone').textContent        = emoji;
+    document.getElementById('climaTemp').textContent         = `${Math.round(temp)}°C`;
+    document.getElementById('climaDesc').textContent         = descClima;
+    document.getElementById('climaAtualizado').textContent   = `Atualizado ${hora}`;
+
+    document.getElementById('climaVento').textContent        = `${Math.round(ventoKmh)} km/h`;
+    document.getElementById('climaVentoDirecao').textContent = grausParaDirecao(dirVento);
+    document.getElementById('climaRajada').textContent       = `${Math.round(rajadaKmh)} km/h`;
+
+    document.getElementById('climaOnda').textContent         = `${alturaOnda.toFixed(1)} m${fontOnda}`;
+    document.getElementById('climaOndaPeriodo').textContent  = `${periodoOnda}s`;
+
+    // Maré / swell
+    document.getElementById('climaMare').textContent         = `${swellH.toFixed(1)} m`;
+    document.getElementById('climaMareTendencia').textContent = swellH >= 1.0 ? 'Maré alta' : 'Maré baixa';
+
+    document.getElementById('climaUmidade').textContent      = `${umidade}%`;
+    document.getElementById('climaUV').textContent           = uvIndex.toFixed(1);
+    document.getElementById('climaUVLabel').textContent      = uvLabel;
+
+    // Score barra
+    const scoreColor = score >= 7 ? '#2dd4bf' : score >= 5 ? '#f59e0b' : '#ef4444';
+    document.getElementById('climaScoreNum').textContent  = `${score}/10`;
+    document.getElementById('climaScoreDesc').textContent = scoreDesc;
+    const fill = document.getElementById('climaScoreFill');
+    fill.style.width      = `${score * 10}%`;
+    fill.style.background = scoreColor;
+
+    elLoading.classList.add('hidden');
+    elConteudo.classList.remove('hidden');
 }
 
 // ═════════════════════════════════════════════
