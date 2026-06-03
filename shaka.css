@@ -460,6 +460,25 @@ a { text-decoration: none; color: inherit; }
 }
 .btn-add-item:hover { background: rgba(45,212,191,0.06); border-color: var(--teal); }
 
+
+.btn-ia {
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 11px;
+  margin-top: 8px;
+  background: linear-gradient(135deg, #38bdf8, #2dd4bf);
+  color: #02131f;
+  border: none;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.15s;
+  letter-spacing: 0.03em;
+}
+.btn-ia:hover { opacity: 0.88; transform: translateY(-1px); }
+.btn-ia:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
 .btn-send {
   width: 100%; font-family: var(--font-body); font-size: 0.88rem; font-weight: 600;
   padding: 11px; background: var(--teal); color: var(--bg);

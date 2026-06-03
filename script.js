@@ -18,7 +18,8 @@ let modoAutenticacao = 'login';
 // ── Refs DOM ───────────────────────────────────────────────────
 let listaElement, filtroInput, painelDetalhes, praiaNome, praiaTipo,
     praiaDados, praiaPerigos, analisePraia, eventosDiv,
-    comentariosDiv, comentarioInput, btnEnviar;
+    comentariosDiv, comentarioInput, btnEnviar,
+    resumoIADiv, btnGerarResumoIA;
 
 // ═════════════════════════════════════════════
 //   INIT
@@ -38,6 +39,11 @@ async function iniciarApp() {
     comentariosDiv  = document.getElementById('comentarios');
     comentarioInput = document.getElementById('comentario');
     btnEnviar       = document.getElementById('btnEnviar');
+    resumoIADiv     = document.getElementById('resumoIA');
+    btnGerarResumoIA = document.getElementById('btnGerarResumoIA');
+    if (btnGerarResumoIA) {
+        btnGerarResumoIA.addEventListener('click', gerarResumoIA);
+    }
 
     configurarMapa();
     verificarUsuarioLogado();
@@ -266,6 +272,10 @@ async function selecionarPraia(praia) {
         <div class="info-card"><strong>Dificuldade</strong>${renderizarEstrelas(praia.nivel_dificuldade)}</div>
         <div class="info-card"><strong>Latitude</strong>${praia.latitude.toFixed(5)}</div>
         <div class="info-card"><strong>Longitude</strong>${praia.longitude.toFixed(5)}</div>`;
+
+    if (resumoIADiv) {
+        resumoIADiv.innerHTML = '<div class="info-card">Clique em "Gerar resumo por IA" para analisar os comentários desta praia.</div>';
+    }
 
     map.flyTo([praia.latitude, praia.longitude], 13, { animate: true });
 
@@ -743,4 +753,134 @@ function mostrarToast(mensagem, tipo = 'ok') {
     toast.className   = `shaka-toast shaka-toast--${tipo} shaka-toast--show`;
     clearTimeout(toast._timer);
     toast._timer = setTimeout(() => toast.classList.remove('shaka-toast--show'), 3200);
+}
+
+// ═════════════════════════════════════════════
+//   RESUMO IA — análise local de comentários
+// ═════════════════════════════════════════════
+
+async function buscarComentariosDaPraia(idPraia) {
+    const data = await fazerRequisicaoSupabase('comentario', `id_praia=eq.${idPraia}&order=data.desc`);
+    return data || [];
+}
+
+async function gerarResumoIA() {
+    if (!praiaSelecionada) {
+        mostrarToast('Selecione uma praia primeiro.', 'erro');
+        return;
+    }
+
+    resumoIADiv.innerHTML = '<div class="info-card">Analisando comentários da praia...</div>';
+
+    const comentarios = await buscarComentariosDaPraia(praiaSelecionada.id);
+
+    if (!comentarios || comentarios.length === 0) {
+        renderizarResumoIA({
+            resumo: 'Ainda não há comentários suficientes para gerar uma análise automática desta praia.',
+            pontos_positivos: [],
+            pontos_negativos: [],
+            dicas: ['Seja o primeiro a comentar para ajudar outros usuários do Shaka.'],
+            sentimento_geral: 'sem dados suficientes'
+        });
+        return;
+    }
+
+    renderizarResumoIA(analisarComentariosLocal(comentarios, praiaSelecionada));
+}
+
+function analisarComentariosLocal(comentarios, praia) {
+    const textos     = comentarios.map(c => c.texto || '').filter(t => t.trim() !== '');
+    const textoGeral = textos.join(' ').toLowerCase();
+
+    const palavrasPositivas  = ['boa','bom','ótima','otima','excelente','maravilhosa','bonita','limpa','tranquila','segura','agradável','agradavel','recomendo','legal','perfeita','incrível','incrivel','top','linda','calma','organizada','gostei','vale a pena'];
+    const palavrasNegativas  = ['ruim','péssima','pessima','suja','lixo','perigosa','perigo','assalto','violenta','lotada','cheia','cara','problema','arriscado','corrente forte','poluída','poluida','mal cuidada','desorganizada','não recomendo','nao recomendo'];
+    const palavrasSurf       = ['onda','ondas','surf','surfar','surfista','mar','vento','corrente','pedra','pedras','forte','tubo','maré','mare'];
+    const palavrasEstrutura  = ['barraca','barracas','restaurante','estacionamento','banheiro','quiosque','serviço','servico','comida','atendimento','hotel','pousada','guarda-vidas','salva-vidas'];
+
+    const positivos       = contarOcorrenciasIA(textoGeral, palavrasPositivas);
+    const negativos       = contarOcorrenciasIA(textoGeral, palavrasNegativas);
+    const termosSurf      = contarOcorrenciasIA(textoGeral, palavrasSurf);
+    const termosEstrutura = contarOcorrenciasIA(textoGeral, palavrasEstrutura);
+
+    let sentimento_geral = 'neutro';
+    if (textos.length < 2)                        sentimento_geral = 'sem dados suficientes';
+    else if (positivos > negativos + 1)           sentimento_geral = negativos > 0 ? 'positivo com ressalvas' : 'positivo';
+    else if (negativos > positivos + 1)           sentimento_geral = 'negativo';
+    else if (positivos > 0 && negativos > 0)      sentimento_geral = 'positivo com ressalvas';
+
+    const pontos_positivos = [];
+    if (positivos > 0)                            pontos_positivos.push('Os comentários apresentam percepções positivas sobre a praia.');
+    if (termosSurf > 0)                           pontos_positivos.push('Há menções relacionadas ao mar, ondas ou prática de surf.');
+    if (termosEstrutura > 0)                      pontos_positivos.push('Alguns comentários indicam presença de estrutura ou serviços próximos.');
+    if (Number(praia.nivel_popularidade) >= 4)    pontos_positivos.push('A praia possui alto nível de popularidade cadastrado no sistema.');
+    if (pontos_positivos.length === 0)            pontos_positivos.push('Ainda há poucas informações positivas identificadas automaticamente.');
+
+    const pontos_negativos = [];
+    if (negativos > 0)                            pontos_negativos.push('Foram identificadas ressalvas ou críticas nos comentários dos usuários.');
+    if ((praia.perigos || '').trim() !== '')       pontos_negativos.push(`Perigos cadastrados: ${praia.perigos}.`);
+    if (Number(praia.nivel_dificuldade) >= 4)     pontos_negativos.push('O nível de dificuldade cadastrado é elevado.');
+    if (textoGeral.includes('corrente') || textoGeral.includes('pedra')) pontos_negativos.push('Existem menções a possíveis riscos naturais, como corrente ou pedras.');
+    if (pontos_negativos.length === 0)            pontos_negativos.push('Nenhum ponto negativo forte foi identificado automaticamente.');
+
+    const dicas = [];
+    if (Number(praia.nivel_dificuldade) >= 4)     dicas.push('Recomendada maior cautela para iniciantes devido ao nível de dificuldade.');
+    if ((praia.perigos || '').trim() !== '')       dicas.push('Verifique os perigos informados antes de entrar no mar.');
+    if (textoGeral.includes('lotada') || textoGeral.includes('cheia')) dicas.push('Evite horários de pico caso prefira uma experiência mais tranquila.');
+    if (termosSurf > 0)                           dicas.push('Confira as condições do mar antes de surfar.');
+    if (dicas.length === 0)                       dicas.push('Leia os comentários recentes para entender melhor as condições atuais da praia.');
+
+    let resumo = `Com base em ${textos.length} comentário(s), a praia ${praia.nome} apresenta uma percepção geral `;
+    if      (sentimento_geral === 'positivo')               resumo += 'positiva entre os usuários.';
+    else if (sentimento_geral === 'negativo')               resumo += 'negativa, com críticas relevantes nos comentários.';
+    else if (sentimento_geral === 'positivo com ressalvas') resumo += 'positiva, mas com algumas ressalvas apontadas pelos usuários.';
+    else if (sentimento_geral === 'sem dados suficientes')  resumo += 'ainda limitada, pois há poucos comentários disponíveis.';
+    else                                                     resumo += 'neutra ou mista, sem predominância clara.';
+    if (termosSurf > 0)      resumo += ' A análise identificou menções relacionadas ao mar, ondas ou surf.';
+    if (termosEstrutura > 0) resumo += ' Também há indicações de estrutura ou serviços próximos.';
+    if (negativos > 0)       resumo += ' Alguns comentários indicam pontos de atenção antes da visita.';
+
+    return { resumo, pontos_positivos, pontos_negativos, dicas, sentimento_geral };
+}
+
+function contarOcorrenciasIA(texto, palavras) {
+    return palavras.reduce((total, p) => total + (texto.includes(p) ? 1 : 0), 0);
+}
+
+function renderizarResumoIA(resumo) {
+    const sentimentoCores = {
+        'positivo':               '#22c55e',
+        'positivo com ressalvas': '#f59e0b',
+        'negativo':               '#ef4444',
+        'neutro':                 '#94a3b8',
+        'sem dados suficientes':  '#94a3b8'
+    };
+    const cor = sentimentoCores[resumo.sentimento_geral] || '#94a3b8';
+
+    resumoIADiv.innerHTML = `
+        <div class="info-card">
+            <strong>Resumo geral</strong>
+            <p style="margin-top:6px;line-height:1.6">${resumo.resumo}</p>
+        </div>
+        <div class="info-card">
+            <strong>✅ Pontos positivos</strong>
+            <ul style="margin:6px 0 0 16px;line-height:1.8">
+                ${(resumo.pontos_positivos || []).map(i => `<li>${i}</li>`).join('')}
+            </ul>
+        </div>
+        <div class="info-card">
+            <strong>⚠️ Pontos negativos</strong>
+            <ul style="margin:6px 0 0 16px;line-height:1.8">
+                ${(resumo.pontos_negativos || []).map(i => `<li>${i}</li>`).join('')}
+            </ul>
+        </div>
+        <div class="info-card">
+            <strong>💡 Dicas</strong>
+            <ul style="margin:6px 0 0 16px;line-height:1.8">
+                ${(resumo.dicas || []).map(i => `<li>${i}</li>`).join('')}
+            </ul>
+        </div>
+        <div class="info-card" style="display:flex;align-items:center;gap:8px">
+            <strong>Sentimento geral:</strong>
+            <span style="color:${cor};font-weight:600">${resumo.sentimento_geral || 'Não informado'}</span>
+        </div>`;
 }
